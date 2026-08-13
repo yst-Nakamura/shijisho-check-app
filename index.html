@@ -443,8 +443,19 @@
     return ok;
   }
 
+  function guessCareKb(shijiShurui) {
+    return (shijiShurui.indexOf('精神') !== -1) ? '精神' : '一般';
+  }
+
+  function guessDirectionKb(shijiShurui) {
+    if (shijiShurui.indexOf('特別') !== -1) return '特別指示';
+    if (shijiShurui.indexOf('点滴') !== -1) return '点滴指示';
+    return '通常指示';
+  }
+
   document.getElementById('copyKantakiBtn').addEventListener('click', function () {
     var sicknessLines = fieldVal('f_shubyoumei').split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    var shijiShurui = fieldVal('f_shiji_shurui');
     var payload = {
       direction_start: fieldVal('f_yuukou_kaishi'),
       direction_end: fieldVal('f_yuukou_shuuryou'),
@@ -457,7 +468,9 @@
       tel1: fieldVal('f_iryoukikan_denwa'),
       fax: fieldVal('f_iryoukikan_fax'),
       doctor: fieldVal('f_ishi_mei'),
-      attached8: !!fieldVal('f_beppyou_taiou')
+      attached8: !!fieldVal('f_beppyou_taiou'),
+      care_kb: shijiShurui ? guessCareKb(shijiShurui) : '',
+      direction_kb: shijiShurui ? guessDirectionKb(shijiShurui) : ''
     };
     var ok = copyToClipboard(JSON.stringify(payload));
     var status = document.getElementById('copyStatus');
