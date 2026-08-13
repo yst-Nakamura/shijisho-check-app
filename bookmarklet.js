@@ -16,7 +16,7 @@
  * - 看護区分・指示区分は、指示書の種類から推測して自動選択する(念のため必ず確認すること)
  * - 指示期間(ヵ月)のプルダウン、重症心身障害児のラジオボタンは
  *   選択肢の値を未確認のため、今回は対象外(必要になったら追加する)
- * - 報告書年月日はKANTAKI-WIZ側で自動計算される仕様のため、このブックマークレットでは触らない
+ * - 報告書年月日は、指示期間の開始日が属する月の月末日を自動計算して入力する
  * - 自動入力後も、内容が正しいか必ず目で確認すること
  */
 (function () {
@@ -42,6 +42,7 @@
 
   setVal('direction_start', d.direction_start);
   setVal('direction_end', d.direction_end);
+  setVal('report_day', d.report_day);
   setVal('rece_detail', d.rece_detail);
   setVal('postscript', d.postscript);
   setVal('other_station1', d.other_station1);

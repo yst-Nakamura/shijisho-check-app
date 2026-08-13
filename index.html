@@ -453,12 +453,25 @@
     return '通常指示';
   }
 
+  function lastDayOfMonth(dateStr) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || '');
+    if (!m) return '';
+    var year = parseInt(m[1], 10);
+    var month = parseInt(m[2], 10);
+    var last = new Date(year, month, 0);
+    var mm = String(last.getMonth() + 1).padStart(2, '0');
+    var dd = String(last.getDate()).padStart(2, '0');
+    return last.getFullYear() + '-' + mm + '-' + dd;
+  }
+
   document.getElementById('copyKantakiBtn').addEventListener('click', function () {
     var sicknessLines = fieldVal('f_shubyoumei').split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
     var shijiShurui = fieldVal('f_shiji_shurui');
+    var directionStart = fieldVal('f_yuukou_kaishi');
     var payload = {
-      direction_start: fieldVal('f_yuukou_kaishi'),
+      direction_start: directionStart,
       direction_end: fieldVal('f_yuukou_shuuryou'),
+      report_day: lastDayOfMonth(directionStart),
       rece_detail: fieldVal('f_byoujou_chiryou_joukyou'),
       postscript: fieldVal('f_ryuui_shiji_jikou'),
       sickness: sicknessLines,
