@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>指示書AI読取(お試し版)</title>
+<style>
+  :root {
+    --ink: #090401;
+    --ocean: #91B9C1;
+    --sky: #C3DCF0;
+    --sand: #C19569;
+    --mist: #D8DDE1;
+    --white: #FFFFFF;
+    --green: #5F8C8A;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Noto Sans JP", sans-serif;
+    background: var(--mist);
+    color: var(--ink);
+    line-height: 1.75;
+  }
+  header {
+    background: var(--ink);
+    color: var(--white);
+    padding: 16px 20px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+  header p {
+    margin: 4px 0 0;
+    font-size: 0.75rem;
+    color: var(--sky);
+  }
+  main {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+  .card {
+    background: var(--white);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  .card h2 {
+    font-size: 0.95rem;
+    margin: 0 0 10px;
+    color: var(--ink);
+  }
+  .card details summary {
+    font-size: 0.85rem;
+    color: var(--green);
+    cursor: pointer;
+    font-weight: 500;
+  }
+  label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    color: #555;
+    margin: 10px 0 4px;
+  }
+  input[type="text"], input[type="url"], textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--mist);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    background: var(--white);
+    resize: vertical;
+  }
+  input[type="file"] {
+    width: 100%;
+    font-size: 0.85rem;
+    padding: 8px 0;
+  }
+  button {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    min-height: 44px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 12px;
+  }
+  .btn-primary {
+    background: var(--ocean);
+    color: var(--ink);
+  }
+  .btn-primary:disabled {
+    background: var(--mist);
+    color: #999;
+    cursor: not-allowed;
+  }
+  .btn-secondary {
+    background: var(--sky);
+    color: var(--ink);
+  }
+  #preview {
+    max-width: 100%;
+    border-radius: 8px;
+    margin-top: 10px;
+    display: none;
+  }
+  .status {
+    font-size: 0.85rem;
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 8px;
+    display: none;
+  }
+  .status.loading { display: block; background: var(--sky); color: var(--ink); }
+  .status.error { display: block; background: #f5d9d0; color: #8a3b1f; }
+  .status.note { display: block; background: var(--mist); color: #555; font-size: 0.75rem; }
+  .result-field {
+    margin-bottom: 10px;
+  }
+  .result-field label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .badge {
+    font-size: 0.65rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 700;
+  }
+  .badge.ok { background: var(--green); color: var(--white); }
+  .badge.check { background: var(--sand); color: var(--white); }
+  #resultCard { display: none; }
+  .disclaimer {
+    font-size: 0.7rem;
+    color: #777;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>指示書AI読取(お試し版)</h1>
+  <p>撮影 → AIが内容を読み取り → 画面で確認</p>
+</header>
+<main>
+
+  <div class="card">
+    <details>
+      <summary>設定(初回のみ)</summary>
+      <label for="gasUrl">GASウェブアプリURL</label>
+      <input type="url" id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec">
+      <label for="passcode">合言葉(社内共有パスワード)</label>
+      <input type="text" id="passcode" placeholder="担当者から共有された合言葉">
+      <button class="btn-secondary" id="saveUrlBtn" type="button">保存</button>
+      <p class="status note" id="urlStatus" style="display:block;">未設定です。GASのデプロイURLと合言葉を入力して保存してください。</p>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>1. 指示書を撮影・選択</h2>
+    <input type="file" id="fileInput" accept="image/*,application/pdf" capture="environment">
+    <img id="preview" alt="プレビュー">
+    <p class="status note" id="pdfPreviewLabel" style="display:none;"></p>
+    <button class="btn-primary" id="readBtn" type="button" disabled>AIで読み取る</button>
+    <div class="status loading" id="loadingStatus">読み取り中です。しばらくお待ちください...</div>
+    <div class="status error" id="errorStatus"></div>
+  </div>
+
+  <div class="card" id="resultCard">
+    <h2>2. 読み取り結果を確認・修正</h2>
+    <div class="result-field">
+      <label>指示書の種類</label>
+      <input type="text" id="f_shiji_shurui">
+    </div>
+    <div class="result-field">
+      <label>発行先の訪問看護ステーション(事業所)名</label>
+      <input type="text" id="f_jigyousho_mei">
+    </div>
+    <div class="result-field">
+      <label>発行医療機関名</label>
+      <input type="text" id="f_iryoukikan_mei">
+    </div>
+    <div class="result-field">
+      <label>医療機関の所在地</label>
+      <input type="text" id="f_iryoukikan_shozaichi">
+    </div>
+    <div class="result-field">
+      <label>医療機関の電話番号</label>
+      <input type="text" id="f_iryoukikan_denwa">
+    </div>
+    <div class="result-field">
+      <label>医療機関のFAX番号</label>
+      <input type="text" id="f_iryoukikan_fax">
+    </div>
+    <div class="result-field">
+      <label>医師名</label>
+      <input type="text" id="f_ishi_mei">
+    </div>
+    <div class="result-field">
+      <label>交付日</label>
+      <input type="text" id="f_koufu_bi">
+    </div>
+    <div class="result-field">
+      <label>有効期間 開始日</label>
+      <input type="text" id="f_yuukou_kaishi">
+    </div>
+    <div class="result-field">
+      <label>有効期間 終了日</label>
+      <input type="text" id="f_yuukou_shuuryou">
+    </div>
+    <div class="result-field">
+      <label>対象者氏名の表記</label>
+      <input type="text" id="f_taishousha_hyouki">
+    </div>
+    <div class="result-field">
+      <label>対象者の生年月日</label>
+      <input type="text" id="f_seinengapi">
+    </div>
+    <div class="result-field">
+      <label>対象者の住所</label>
+      <input type="text" id="f_jusho">
+    </div>
+    <div class="result-field">
+      <label>要介護度</label>
+      <input type="text" id="f_youkaigodo">
+    </div>
+    <div class="result-field">
+      <label>主たる傷病名</label>
+      <textarea id="f_shubyoumei" rows="2"></textarea>
+    </div>
+    <div class="result-field">
+      <label>病状・治療状態・心身の状態</label>
+      <textarea id="f_byoujou_chiryou_joukyou" rows="3"></textarea>
+    </div>
+    <div class="result-field">
+      <label>留意事項及び指示事項(リハビリ・褥瘡処置等)</label>
+      <textarea id="f_ryuui_shiji_jikou" rows="4"></textarea>
+    </div>
+    <div class="result-field">
+      <label>装着・使用中の医療機器等</label>
+      <textarea id="f_souchaku_iryoukiki" rows="2"></textarea>
+    </div>
+    <div class="result-field">
+      <label>重症心身障害児区分</label>
+      <input type="text" id="f_juushou_shinshin_shougaiji">
+    </div>
+    <div class="result-field">
+      <label>別表7・8等への該当</label>
+      <input type="text" id="f_beppyou_taiou">
+    </div>
+    <div class="result-field">
+      <label>他の訪問看護ステーションへの指示</label>
+      <textarea id="f_hoka_station" rows="2"></textarea>
+    </div>
+    <div class="result-field">
+      <label>緊急時・不在時の連絡先</label>
+      <textarea id="f_kinkyuji_renrakusaki" rows="2"></textarea>
+    </div>
+    <div class="result-field">
+      <label>AIからの注記</label>
+      <textarea id="f_yomitori_biko" rows="2"></textarea>
+    </div>
+    <p class="disclaimer">これはお試し版です。この内容はまだどこにも保存されません。内容が正しいか必ず目で確認してください。</p>
+    <button class="btn-secondary" id="copyKantakiBtn" type="button">KANTAKI-WIZ用にコピー</button>
+    <p class="status note" id="copyStatus" style="display:none;"></p>
+    <p class="disclaimer">コピー後、KANTAKI-WIZの指示書画面でブックマークレットを実行し、貼り付けてください。「利用者ID」の選択は自動化されないので、別途手動で行ってください。</p>
+  </div>
+
+</main>
+
+<script>
+(function () {
+  var GAS_URL_KEY = 'shijisho_gas_url';
+  var PASSCODE_KEY = 'shijisho_passcode';
+  var gasUrlInput = document.getElementById('gasUrl');
+  var passcodeInput = document.getElementById('passcode');
+  var saveUrlBtn = document.getElementById('saveUrlBtn');
+  var urlStatus = document.getElementById('urlStatus');
+  var fileInput = document.getElementById('fileInput');
+  var preview = document.getElementById('preview');
+  var readBtn = document.getElementById('readBtn');
+  var loadingStatus = document.getElementById('loadingStatus');
+  var errorStatus = document.getElementById('errorStatus');
+  var resultCard = document.getElementById('resultCard');
+  var pdfPreviewLabel = document.getElementById('pdfPreviewLabel');
+
+  var currentFile = null;
+
+  function getGasUrl() {
+    return localStorage.getItem(GAS_URL_KEY) || '';
+  }
+
+  function getPasscode() {
+    return localStorage.getItem(PASSCODE_KEY) || '';
+  }
+
+  function refreshUrlStatus() {
+    var url = getGasUrl();
+    var passcode = getPasscode();
+    if (url) {
+      gasUrlInput.value = url;
+      passcodeInput.value = passcode;
+      urlStatus.textContent = '設定済みです。';
+    } else {
+      urlStatus.textContent = '未設定です。GASのデプロイURLと合言葉を入力して保存してください。';
+    }
+    updateReadBtnState();
+  }
+
+  saveUrlBtn.addEventListener('click', function () {
+    var url = gasUrlInput.value.trim();
+    if (!url) {
+      urlStatus.textContent = 'URLを入力してください。';
+      return;
+    }
+    localStorage.setItem(GAS_URL_KEY, url);
+    localStorage.setItem(PASSCODE_KEY, passcodeInput.value.trim());
+    refreshUrlStatus();
+  });
+
+  fileInput.addEventListener('change', function () {
+    var file = fileInput.files[0];
+    if (!file) {
+      currentFile = null;
+      preview.style.display = 'none';
+      pdfPreviewLabel.style.display = 'none';
+      updateReadBtnState();
+      return;
+    }
+    currentFile = file;
+    var isPdf = (file.type === 'application/pdf');
+    if (isPdf) {
+      preview.style.display = 'none';
+      pdfPreviewLabel.textContent = '📄 ' + file.name + ' を選択しました(PDFはプレビュー表示されません)';
+      pdfPreviewLabel.style.display = 'block';
+    } else {
+      pdfPreviewLabel.style.display = 'none';
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    }
+    updateReadBtnState();
+  });
+
+  function updateReadBtnState() {
+    readBtn.disabled = !(currentFile && getGasUrl());
+  }
+
+  function fileToBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var dataUrl = reader.result;
+        var base64 = dataUrl.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  readBtn.addEventListener('click', function () {
+    if (!currentFile) return;
+    var gasUrl = getGasUrl();
+    if (!gasUrl) return;
+
+    errorStatus.style.display = 'none';
+    resultCard.style.display = 'none';
+    loadingStatus.style.display = 'block';
+    readBtn.disabled = true;
+
+    fileToBase64(currentFile).then(function (base64) {
+      return fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ imageBase64: base64, mimeType: currentFile.type || 'image/jpeg', passcode: getPasscode() })
+      });
+    }).then(function (res) {
+      return res.json();
+    }).then(function (data) {
+      loadingStatus.style.display = 'none';
+      readBtn.disabled = false;
+      if (data.error) {
+        errorStatus.textContent = data.error;
+        errorStatus.style.display = 'block';
+        return;
+      }
+      showResult(data.extracted);
+    }).catch(function (err) {
+      loadingStatus.style.display = 'none';
+      readBtn.disabled = false;
+      errorStatus.textContent = '通信エラーが発生しました: ' + err.message;
+      errorStatus.style.display = 'block';
+    });
+  });
+
+  function showResult(extracted) {
+    var simpleFields = [
+      'shiji_shurui', 'jigyousho_mei', 'iryoukikan_mei', 'iryoukikan_shozaichi', 'iryoukikan_denwa', 'iryoukikan_fax',
+      'ishi_mei', 'koufu_bi', 'yuukou_kaishi', 'yuukou_shuuryou', 'taishousha_hyouki', 'seinengapi', 'jusho', 'youkaigodo',
+      'byoujou_chiryou_joukyou', 'ryuui_shiji_jikou', 'souchaku_iryoukiki', 'juushou_shinshin_shougaiji',
+      'beppyou_taiou', 'hoka_station', 'kinkyuji_renrakusaki', 'yomitori_biko'
+    ];
+    simpleFields.forEach(function (key) {
+      var el = document.getElementById('f_' + key);
+      if (el) el.value = extracted[key] || '';
+    });
+    var shubyoumei = extracted.shubyoumei;
+    document.getElementById('f_shubyoumei').value = (shubyoumei && shubyoumei.length) ? shubyoumei.join('\n') : '';
+    resultCard.style.display = 'block';
+  }
+
+  function fieldVal(id) {
+    var el = document.getElementById(id);
+    return el ? el.value.trim() : '';
+  }
+
+  function copyToClipboard(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  document.getElementById('copyKantakiBtn').addEventListener('click', function () {
+    var sicknessLines = fieldVal('f_shubyoumei').split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    var payload = {
+      direction_start: fieldVal('f_yuukou_kaishi'),
+      direction_end: fieldVal('f_yuukou_shuuryou'),
+      rece_detail: fieldVal('f_byoujou_chiryou_joukyou'),
+      postscript: fieldVal('f_ryuui_shiji_jikou'),
+      sickness: sicknessLines,
+      other_station1: fieldVal('f_hoka_station'),
+      hospital: fieldVal('f_iryoukikan_mei'),
+      address1: fieldVal('f_iryoukikan_shozaichi'),
+      tel1: fieldVal('f_iryoukikan_denwa'),
+      fax: fieldVal('f_iryoukikan_fax'),
+      doctor: fieldVal('f_ishi_mei'),
+      attached8: !!fieldVal('f_beppyou_taiou')
+    };
+    var ok = copyToClipboard(JSON.stringify(payload));
+    var status = document.getElementById('copyStatus');
+    status.style.display = 'block';
+    status.textContent = ok
+      ? 'コピーしました。KANTAKI-WIZの画面でブックマークレットを実行してください。'
+      : 'コピーに失敗しました。お使いの環境ではクリップボードが使えないようです。';
+  });
+
+  refreshUrlStatus();
+})();
+</script>
+</body>
+</html>
