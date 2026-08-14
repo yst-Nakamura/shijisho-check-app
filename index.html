@@ -68,7 +68,7 @@
     color: #555;
     margin: 10px 0 4px;
   }
-  input[type="text"], input[type="url"], textarea {
+  input[type="text"], input[type="url"], textarea, select {
     width: 100%;
     padding: 10px;
     border: 1px solid var(--mist);
@@ -168,7 +168,13 @@
   </div>
 
   <div class="card">
-    <h2>1. 指示書を撮影・選択</h2>
+    <h2>1. 書類を撮影・選択</h2>
+    <label for="docTypeSelect">書類の種類</label>
+    <select id="docTypeSelect">
+      <option value="shijisho">指示書(訪問看護指示書など)</option>
+      <option value="hokensho">介護保険証</option>
+      <option value="futanwariai">介護負担割合証</option>
+    </select>
     <input type="file" id="fileInput" accept="image/*,application/pdf" capture="environment">
     <img id="preview" alt="プレビュー">
     <p class="status note" id="pdfPreviewLabel" style="display:none;"></p>
@@ -179,102 +185,11 @@
 
   <div class="card" id="resultCard">
     <h2>2. 読み取り結果を確認・修正</h2>
-    <div class="result-field">
-      <label>指示書の種類</label>
-      <input type="text" id="f_shiji_shurui">
-    </div>
-    <div class="result-field">
-      <label>発行先の訪問看護ステーション(事業所)名</label>
-      <input type="text" id="f_jigyousho_mei">
-    </div>
-    <div class="result-field">
-      <label>発行医療機関名</label>
-      <input type="text" id="f_iryoukikan_mei">
-    </div>
-    <div class="result-field">
-      <label>医療機関の所在地</label>
-      <input type="text" id="f_iryoukikan_shozaichi">
-    </div>
-    <div class="result-field">
-      <label>医療機関の電話番号</label>
-      <input type="text" id="f_iryoukikan_denwa">
-    </div>
-    <div class="result-field">
-      <label>医療機関のFAX番号</label>
-      <input type="text" id="f_iryoukikan_fax">
-    </div>
-    <div class="result-field">
-      <label>医師名</label>
-      <input type="text" id="f_ishi_mei">
-    </div>
-    <div class="result-field">
-      <label>交付日</label>
-      <input type="text" id="f_koufu_bi">
-    </div>
-    <div class="result-field">
-      <label>有効期間 開始日</label>
-      <input type="text" id="f_yuukou_kaishi">
-    </div>
-    <div class="result-field">
-      <label>有効期間 終了日</label>
-      <input type="text" id="f_yuukou_shuuryou">
-    </div>
-    <div class="result-field">
-      <label>対象者氏名の表記</label>
-      <input type="text" id="f_taishousha_hyouki">
-    </div>
-    <div class="result-field">
-      <label>対象者の生年月日</label>
-      <input type="text" id="f_seinengapi">
-    </div>
-    <div class="result-field">
-      <label>対象者の住所</label>
-      <input type="text" id="f_jusho">
-    </div>
-    <div class="result-field">
-      <label>要介護度</label>
-      <input type="text" id="f_youkaigodo">
-    </div>
-    <div class="result-field">
-      <label>主たる傷病名</label>
-      <textarea id="f_shubyoumei" rows="2"></textarea>
-    </div>
-    <div class="result-field">
-      <label>病状・治療状態・心身の状態</label>
-      <textarea id="f_byoujou_chiryou_joukyou" rows="3"></textarea>
-    </div>
-    <div class="result-field">
-      <label>留意事項及び指示事項(リハビリ・褥瘡処置等)</label>
-      <textarea id="f_ryuui_shiji_jikou" rows="4"></textarea>
-    </div>
-    <div class="result-field">
-      <label>装着・使用中の医療機器等</label>
-      <textarea id="f_souchaku_iryoukiki" rows="2"></textarea>
-    </div>
-    <div class="result-field">
-      <label>重症心身障害児区分</label>
-      <input type="text" id="f_juushou_shinshin_shougaiji">
-    </div>
-    <div class="result-field">
-      <label>別表7・8等への該当</label>
-      <input type="text" id="f_beppyou_taiou">
-    </div>
-    <div class="result-field">
-      <label>他の訪問看護ステーションへの指示</label>
-      <textarea id="f_hoka_station" rows="2"></textarea>
-    </div>
-    <div class="result-field">
-      <label>緊急時・不在時の連絡先</label>
-      <textarea id="f_kinkyuji_renrakusaki" rows="2"></textarea>
-    </div>
-    <div class="result-field">
-      <label>AIからの注記</label>
-      <textarea id="f_yomitori_biko" rows="2"></textarea>
-    </div>
+    <div id="dynamicFields"></div>
     <p class="disclaimer">これはお試し版です。この内容はまだどこにも保存されません。内容が正しいか必ず目で確認してください。</p>
     <button class="btn-secondary" id="copyKantakiBtn" type="button">KANTAKI-WIZ用にコピー</button>
     <p class="status note" id="copyStatus" style="display:none;"></p>
-    <p class="disclaimer">コピー後、KANTAKI-WIZの指示書画面でブックマークレットを実行し、貼り付けてください。「利用者ID」の選択は自動化されないので、別途手動で行ってください。</p>
+    <p class="disclaimer" id="copyNote">コピー後、KANTAKI-WIZの指示書画面でブックマークレットを実行し、貼り付けてください。「利用者ID」の選択は自動化されないので、別途手動で行ってください。</p>
   </div>
 
 </main>
@@ -294,8 +209,79 @@
   var errorStatus = document.getElementById('errorStatus');
   var resultCard = document.getElementById('resultCard');
   var pdfPreviewLabel = document.getElementById('pdfPreviewLabel');
+  var docTypeSelect = document.getElementById('docTypeSelect');
+  var dynamicFields = document.getElementById('dynamicFields');
+  var copyKantakiBtn = document.getElementById('copyKantakiBtn');
+  var copyNote = document.getElementById('copyNote');
 
   var currentFile = null;
+
+  var DOC_TYPES = {
+    shijisho: {
+      label: '指示書(訪問看護指示書など)',
+      showKantakiCopy: true,
+      fields: [
+        { key: 'shiji_shurui', label: '指示書の種類' },
+        { key: 'jigyousho_mei', label: '発行先の訪問看護ステーション(事業所)名' },
+        { key: 'iryoukikan_mei', label: '発行医療機関名' },
+        { key: 'iryoukikan_shozaichi', label: '医療機関の所在地' },
+        { key: 'iryoukikan_denwa', label: '医療機関の電話番号' },
+        { key: 'iryoukikan_fax', label: '医療機関のFAX番号' },
+        { key: 'ishi_mei', label: '医師名' },
+        { key: 'koufu_bi', label: '交付日' },
+        { key: 'yuukou_kaishi', label: '有効期間 開始日' },
+        { key: 'yuukou_shuuryou', label: '有効期間 終了日' },
+        { key: 'taishousha_hyouki', label: '対象者氏名の表記' },
+        { key: 'seinengapi', label: '対象者の生年月日' },
+        { key: 'jusho', label: '対象者の住所' },
+        { key: 'youkaigodo', label: '要介護度' },
+        { key: 'shubyoumei', label: '主たる傷病名', textarea: true, isArray: true },
+        { key: 'byoujou_chiryou_joukyou', label: '病状・治療状態・心身の状態', textarea: true },
+        { key: 'ryuui_shiji_jikou', label: '留意事項及び指示事項(リハビリ・褥瘡処置等)', textarea: true },
+        { key: 'souchaku_iryoukiki', label: '装着・使用中の医療機器等', textarea: true },
+        { key: 'juushou_shinshin_shougaiji', label: '重症心身障害児区分' },
+        { key: 'beppyou_taiou', label: '別表7・8等への該当' },
+        { key: 'hoka_station', label: '他の訪問看護ステーションへの指示', textarea: true },
+        { key: 'kinkyuji_renrakusaki', label: '緊急時・不在時の連絡先', textarea: true },
+        { key: 'yomitori_biko', label: 'AIからの注記', textarea: true }
+      ]
+    },
+    hokensho: {
+      label: '介護保険証',
+      showKantakiCopy: false,
+      fields: [
+        { key: 'hihokensha_bangou', label: '被保険者番号' },
+        { key: 'shimei', label: '氏名' },
+        { key: 'seinengapi', label: '生年月日' },
+        { key: 'jusho', label: '住所' },
+        { key: 'koufu_nengapi', label: '交付年月日' },
+        { key: 'hokensha_bangou', label: '保険者番号' },
+        { key: 'hokensha_mei', label: '保険者名' },
+        { key: 'youkaigo_kubun', label: '要介護状態区分等' },
+        { key: 'nintei_nengapi', label: '認定年月日' },
+        { key: 'nintei_yuukou_kaishi', label: '認定有効期間 開始日' },
+        { key: 'nintei_yuukou_shuuryou', label: '認定有効期間 終了日' },
+        { key: 'yomitori_biko', label: 'AIからの注記', textarea: true }
+      ]
+    },
+    futanwariai: {
+      label: '介護負担割合証',
+      showKantakiCopy: false,
+      fields: [
+        { key: 'hihokensha_bangou', label: '被保険者番号' },
+        { key: 'shimei', label: '氏名' },
+        { key: 'seinengapi', label: '生年月日' },
+        { key: 'jusho', label: '住所' },
+        { key: 'futan_wariai', label: '利用者負担割合' },
+        { key: 'tekiyou_kaishi', label: '適用期間 開始日' },
+        { key: 'tekiyou_shuuryou', label: '適用期間 終了日' },
+        { key: 'koufu_nengapi', label: '交付年月日' },
+        { key: 'hokensha_bangou', label: '保険者番号' },
+        { key: 'hokensha_mei', label: '保険者名' },
+        { key: 'yomitori_biko', label: 'AIからの注記', textarea: true }
+      ]
+    }
+  };
 
   function getGasUrl() {
     return localStorage.getItem(GAS_URL_KEY) || '';
@@ -383,11 +369,13 @@
     loadingStatus.style.display = 'block';
     readBtn.disabled = true;
 
+    var docType = docTypeSelect.value;
+
     fileToBase64(currentFile).then(function (base64) {
       return fetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ imageBase64: base64, mimeType: currentFile.type || 'image/jpeg', passcode: getPasscode() })
+        body: JSON.stringify({ imageBase64: base64, mimeType: currentFile.type || 'image/jpeg', passcode: getPasscode(), docType: docType })
       });
     }).then(function (res) {
       return res.json();
@@ -399,7 +387,7 @@
         errorStatus.style.display = 'block';
         return;
       }
-      showResult(data.extracted);
+      showResult(data.extracted, docType);
     }).catch(function (err) {
       loadingStatus.style.display = 'none';
       readBtn.disabled = false;
@@ -408,19 +396,39 @@
     });
   });
 
-  function showResult(extracted) {
-    var simpleFields = [
-      'shiji_shurui', 'jigyousho_mei', 'iryoukikan_mei', 'iryoukikan_shozaichi', 'iryoukikan_denwa', 'iryoukikan_fax',
-      'ishi_mei', 'koufu_bi', 'yuukou_kaishi', 'yuukou_shuuryou', 'taishousha_hyouki', 'seinengapi', 'jusho', 'youkaigodo',
-      'byoujou_chiryou_joukyou', 'ryuui_shiji_jikou', 'souchaku_iryoukiki', 'juushou_shinshin_shougaiji',
-      'beppyou_taiou', 'hoka_station', 'kinkyuji_renrakusaki', 'yomitori_biko'
-    ];
-    simpleFields.forEach(function (key) {
-      var el = document.getElementById('f_' + key);
-      if (el) el.value = extracted[key] || '';
+  function renderResultFields(docType) {
+    var def = DOC_TYPES[docType];
+    dynamicFields.innerHTML = '';
+    def.fields.forEach(function (f) {
+      var wrap = document.createElement('div');
+      wrap.className = 'result-field';
+      var label = document.createElement('label');
+      label.textContent = f.label;
+      var input = document.createElement(f.textarea ? 'textarea' : 'input');
+      if (!f.textarea) input.type = 'text';
+      else input.rows = 3;
+      input.id = 'f_' + f.key;
+      wrap.appendChild(label);
+      wrap.appendChild(input);
+      dynamicFields.appendChild(wrap);
     });
-    var shubyoumei = extracted.shubyoumei;
-    document.getElementById('f_shubyoumei').value = (shubyoumei && shubyoumei.length) ? shubyoumei.join('\n') : '';
+    copyKantakiBtn.style.display = def.showKantakiCopy ? 'block' : 'none';
+    copyNote.style.display = def.showKantakiCopy ? 'block' : 'none';
+  }
+
+  function showResult(extracted, docType) {
+    renderResultFields(docType);
+    var def = DOC_TYPES[docType];
+    def.fields.forEach(function (f) {
+      var el = document.getElementById('f_' + f.key);
+      if (!el) return;
+      var value = extracted[f.key];
+      if (f.isArray) {
+        el.value = (value && value.length) ? value.join('\n') : '';
+      } else {
+        el.value = value || '';
+      }
+    });
     resultCard.style.display = 'block';
   }
 
