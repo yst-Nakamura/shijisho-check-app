@@ -189,7 +189,7 @@
     <p class="disclaimer">これはお試し版です。この内容はまだどこにも保存されません。内容が正しいか必ず目で確認してください。</p>
     <button class="btn-secondary" id="copyKantakiBtn" type="button">KANTAKI-WIZ用にコピー</button>
     <p class="status note" id="copyStatus" style="display:none;"></p>
-    <p class="disclaimer" id="copyNote">コピー後、KANTAKI-WIZの指示書画面でブックマークレットを実行し、貼り付けてください。「利用者ID」の選択は自動化されないので、別途手動で行ってください。</p>
+    <p class="disclaimer" id="copyNote">コピー後、KANTAKI-WIZの該当する画面(利用者IDを選択し、対象の新規登録・編集ポップアップを開いた状態)でブックマークレットを実行し、貼り付けてください。「利用者ID」自体の選択は自動化されないので、別途手動で行ってください。</p>
   </div>
 
 </main>
@@ -248,7 +248,7 @@
     },
     hokensho: {
       label: '介護保険証',
-      showKantakiCopy: false,
+      showKantakiCopy: true,
       fields: [
         { key: 'hihokensha_bangou', label: '被保険者番号' },
         { key: 'shimei', label: '氏名' },
@@ -266,7 +266,7 @@
     },
     futanwariai: {
       label: '介護負担割合証',
-      showKantakiCopy: false,
+      showKantakiCopy: true,
       fields: [
         { key: 'hihokensha_bangou', label: '被保険者番号' },
         { key: 'shimei', label: '氏名' },
@@ -472,11 +472,37 @@
     return last.getFullYear() + '-' + mm + '-' + dd;
   }
 
-  document.getElementById('copyKantakiBtn').addEventListener('click', function () {
+  // 西暦(YYYY-MM-DD) → 和暦(元号+年+月+日)。KANTAKI-WIZの日付欄が元号分割式のため
+  function toEraParts(dateStr) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr || '');
+    if (!m) return { nengo: '', year: '', month: '', day: '' };
+    var y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
+    var date = new Date(y, mo - 1, d);
+    var REIWA_START = new Date(2019, 4, 1);
+    var HEISEI_START = new Date(1989, 0, 8);
+    var nengo, eraStartYear;
+    if (date >= REIWA_START) { nengo = '令和'; eraStartYear = 2019; }
+    else if (date >= HEISEI_START) { nengo = '平成'; eraStartYear = 1989; }
+    else { nengo = '昭和'; eraStartYear = 1926; }
+    var eraYear = y - eraStartYear + 1;
+    return { nengo: nengo, year: String(eraYear), month: String(mo), day: String(d) };
+  }
+
+  function futanWariaiToRate(wariai) {
+    // KANTAKI-WIZの「rate」は給付率(自己負担割合の逆)。1割負担=90, 2割負担=80, 3割負担=70
+    if (!wariai) return '';
+    if (wariai.indexOf('1') !== -1) return '90';
+    if (wariai.indexOf('2') !== -1) return '80';
+    if (wariai.indexOf('3') !== -1) return '70';
+    return '';
+  }
+
+  function buildShijishoPayload() {
     var sicknessLines = fieldVal('f_shubyoumei').split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
     var shijiShurui = fieldVal('f_shiji_shurui');
     var directionStart = fieldVal('f_yuukou_kaishi');
-    var payload = {
+    return {
+      docType: 'shijisho',
       direction_start: directionStart,
       direction_end: fieldVal('f_yuukou_shuuryou'),
       report_day: lastDayOfMonth(directionStart),
@@ -493,6 +519,41 @@
       care_kb: shijiShurui ? guessCareKb(shijiShurui) : '',
       direction_kb: shijiShurui ? guessDirectionKb(shijiShurui) : ''
     };
+  }
+
+  function buildHokenshoPayload() {
+    var certif = toEraParts(fieldVal('f_nintei_nengapi'));
+    var start = toEraParts(fieldVal('f_nintei_yuukou_kaishi'));
+    var end = toEraParts(fieldVal('f_nintei_yuukou_shuuryou'));
+    return {
+      docType: 'hokensho',
+      certif_nengo: certif.nengo, certif_year: certif.year, certif_month: certif.month, certif_dt: certif.day,
+      start_nengo: start.nengo, start_year: start.year, start_month: start.month, start_dt: start.day,
+      end_nengo: end.nengo, end_year: end.year, end_month: end.month, end_dt: end.day,
+      insure_no: fieldVal('f_hokensha_bangou'),
+      insured_no: fieldVal('f_hihokensha_bangou'),
+      care_rank: fieldVal('f_youkaigo_kubun')
+    };
+  }
+
+  function buildFutanwariaiPayload() {
+    var start = toEraParts(fieldVal('f_tekiyou_kaishi'));
+    var end = toEraParts(fieldVal('f_tekiyou_shuuryou'));
+    return {
+      docType: 'futanwariai',
+      start_nengo: start.nengo, start_year: start.year, start_month: start.month, start_dt: start.day,
+      end_nengo: end.nengo, end_year: end.year, end_month: end.month, end_dt: end.day,
+      rate: futanWariaiToRate(fieldVal('f_futan_wariai'))
+    };
+  }
+
+  document.getElementById('copyKantakiBtn').addEventListener('click', function () {
+    var docType = docTypeSelect.value;
+    var payload;
+    if (docType === 'hokensho') payload = buildHokenshoPayload();
+    else if (docType === 'futanwariai') payload = buildFutanwariaiPayload();
+    else payload = buildShijishoPayload();
+
     var ok = copyToClipboard(JSON.stringify(payload));
     var status = document.getElementById('copyStatus');
     status.style.display = 'block';
