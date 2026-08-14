@@ -174,6 +174,7 @@
       <option value="shijisho">指示書(訪問看護指示書など)</option>
       <option value="hokensho">介護保険証</option>
       <option value="futanwariai">介護負担割合証</option>
+      <option value="yakujou">薬情(薬剤情報提供書)</option>
     </select>
     <input type="file" id="fileInput" accept="image/*,application/pdf" capture="environment">
     <img id="preview" alt="プレビュー">
@@ -278,6 +279,17 @@
         { key: 'koufu_nengapi', label: '交付年月日' },
         { key: 'hokensha_bangou', label: '保険者番号' },
         { key: 'hokensha_mei', label: '保険者名' },
+        { key: 'yomitori_biko', label: 'AIからの注記', textarea: true }
+      ]
+    },
+    yakujou: {
+      label: '薬情(薬剤情報提供書)',
+      showKantakiCopy: false,
+      fields: [
+        { key: 'taishousha_hyouki', label: '対象者氏名の表記' },
+        { key: 'hakko_bi', label: '発行日' },
+        { key: 'yakkyoku_mei', label: '発行薬局名' },
+        { key: 'kusuri_ichiran', label: '薬剤情報(1剤ごとの文字起こし)', textarea: true, isArray: true, arrayJoin: '\n\n---\n\n', rows: 8 },
         { key: 'yomitori_biko', label: 'AIからの注記', textarea: true }
       ]
     }
@@ -406,7 +418,7 @@
       label.textContent = f.label;
       var input = document.createElement(f.textarea ? 'textarea' : 'input');
       if (!f.textarea) input.type = 'text';
-      else input.rows = 3;
+      else input.rows = f.rows || 3;
       input.id = 'f_' + f.key;
       wrap.appendChild(label);
       wrap.appendChild(input);
@@ -424,7 +436,7 @@
       if (!el) return;
       var value = extracted[f.key];
       if (f.isArray) {
-        el.value = (value && value.length) ? value.join('\n') : '';
+        el.value = (value && value.length) ? value.join(f.arrayJoin || '\n') : '';
       } else {
         el.value = value || '';
       }

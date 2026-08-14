@@ -222,6 +222,26 @@ function getDocConfig(docType) {
         additionalProperties: false
       },
       instructionText: '添付は介護保険負担割合証です。記載内容から、スキーマに定義された全項目を読み取ってください。読み取れない、記載がない、または自信が持てない項目はnullにし、yomitori_bikoにその旨を記載してください。'
+    },
+
+    yakujou: {
+      schema: {
+        type: 'object',
+        properties: {
+          taishousha_hyouki: { type: ['string', 'null'], description: '書類に記載されている対象者(患者)氏名の表記をそのまま転記' },
+          hakko_bi: { type: ['string', 'null'], description: '発行日。YYYY-MM-DD形式' },
+          yakkyoku_mei: { type: ['string', 'null'], description: '発行した薬局名' },
+          kusuri_ichiran: {
+            type: ['array', 'null'],
+            description: '記載されている薬剤を1剤ずつ配列の要素にする。各要素には、その薬剤の「薬品名」「用法・用量」「効能効果」「注意事項」など記載されている内容を省略せずまとめて文字起こしする。記載がなければnull',
+            items: { type: 'string' }
+          },
+          yomitori_biko: { type: ['string', 'null'], description: '読み取りにくかった箇所や、内容に自信が持てない項目についての注記' }
+        },
+        required: ['taishousha_hyouki', 'hakko_bi', 'yakkyoku_mei', 'kusuri_ichiran', 'yomitori_biko'],
+        additionalProperties: false
+      },
+      instructionText: '添付は薬局が発行する薬剤情報提供書(薬情)です。記載されている内容をできるだけ正確に文字起こししてください。医薬品名・用法用量・効能効果・注意事項は省略せず、薬剤ごとに分けて転記してください。読み取れない、記載がない、または自信が持てない項目はnullにし、yomitori_bikoにその旨を記載してください。'
     }
   };
 
