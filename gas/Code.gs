@@ -10,7 +10,8 @@
  * 2. 「プロジェクトの設定」→「スクリプト プロパティ」で以下を設定する
  *    - TEAM_SECRET: openai-proxyの認証用シークレット(Tetsuyaさんに確認)
  *    - APP_PASSCODE: このアプリ用に社内で共有する合言葉(好きな文字列。TEAM_SECRETとは別物)
- *    - YAKUJOU_WRITE_SECRET: yakujou-records-api(D1保存用Worker)のWRITE_SECRETと同じ値
+ *    - YAKUJOU_WRITE_SECRET: yakujou-records-api(D1/R2保存用Worker。薬情専用ではなく
+ *      指示書・介護保険証・介護負担割合証など全書類の保存に共通で使う)のWRITE_SECRETと同じ値
  * 3. 「デプロイ」→「新しいデプロイ」→ 種類「ウェブアプリ」
  *    - 実行するユーザー: 自分
  *    - アクセスできるユーザー: 全員(重要: 「組織内のみ」にするとアプリ側からの
@@ -34,8 +35,8 @@ function doPost(e) {
       return jsonOutput({ error: '合言葉が正しくありません。設定を確認してください。' });
     }
 
-    if (action === 'save_yakujou') {
-      return handleSaveYakujou(body);
+    if (action === 'save_document') {
+      return handleSaveDocument(body);
     }
 
     var imageBase64 = body.imageBase64;
@@ -68,6 +69,7 @@ function doPost(e) {
 
     var payload = {
       model: OPENAI_MODEL,
+      reasoning: { effort: 'none' },
       input: [{
         type: 'message',
         role: 'user',
@@ -130,9 +132,11 @@ function jsonOutput(obj) {
 }
 
 /**
- * 薬情の読み取り結果を、yakujou-records-api経由でD1(shiten-toggo-db)に保存する。
+ * 指示書・介護保険証・介護負担割合証・薬情など、読み取った書類の内容を
+ * yakujou-records-api経由でD1(shiten-toggo-db)に保存する。
+ * (Worker/D1側は書類の種類を問わない共通のdocument_recordsテーブルに保存する)
  */
-function handleSaveYakujou(body) {
+function handleSaveDocument(body) {
   try {
     var writeSecret = PropertiesService.getScriptProperties().getProperty('YAKUJOU_WRITE_SECRET');
     if (!writeSecret) {
@@ -142,13 +146,16 @@ function handleSaveYakujou(body) {
     if (!body.riyousha_name) {
       return jsonOutput({ error: '利用者名が入力されていません。' });
     }
+    if (!body.doc_type) {
+      return jsonOutput({ error: '書類の種類(doc_type)が指定されていません。' });
+    }
 
     var payload = {
+      doc_type: body.doc_type,
       riyousha_name: body.riyousha_name,
-      hakko_bi: body.hakko_bi || null,
-      yakkyoku_mei: body.yakkyoku_mei || null,
-      kusuri_ichiran: body.kusuri_ichiran || [],
-      yomitori_biko: body.yomitori_biko || null
+      extracted_fields: body.extracted_fields || {},
+      photo_base64: body.photo_base64 || null,
+      photo_mime: body.photo_mime || null
     };
 
     var response = UrlFetchApp.fetch(YAKUJOU_API_URL, {
@@ -166,7 +173,13 @@ function handleSaveYakujou(body) {
       return jsonOutput({ error: '保存に失敗しました(' + statusCode + '): ' + responseText });
     }
 
-    return jsonOutput({ ok: true });
+    var result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (e) {
+      result = { ok: true };
+    }
+    return jsonOutput(result);
   } catch (err) {
     return jsonOutput({ error: '保存処理中にエラーが発生しました: ' + err.message });
   }
@@ -174,7 +187,7 @@ function handleSaveYakujou(body) {
 
 /**
  * 書類の種類ごとに、AIへ渡すJSON Schemaと指示文を組み立てる。
- * docType: 'shijisho'(既定) | 'hokensho' | 'futanwariai'
+ * docType: 'auto'(自動判定) | 'shijisho'(既定) | 'hokensho' | 'futanwariai' | 'yakujou'
  */
 function getDocConfig(docType) {
   var CONFIGS = {
@@ -296,5 +309,53 @@ function getDocConfig(docType) {
     }
   };
 
+  CONFIGS.auto = buildAutoConfig(CONFIGS);
+
   return CONFIGS[docType] || CONFIGS.shijisho;
+}
+
+/**
+ * 「自動判定(おまかせ)」用に、全書類の項目を1つのスキーマに合体させ、
+ * さらに doc_type(判定結果)を追加する。AIが1回の読み取りで
+ * 「どの書類か」の判定と「内容の書き起こし」を同時に行う。
+ */
+function buildAutoConfig(configs) {
+  var types = ['shijisho', 'hokensho', 'futanwariai', 'yakujou'];
+  var properties = {
+    doc_type: {
+      type: 'string',
+      enum: types,
+      description: '書類の種類の判定結果。訪問看護指示書・特別訪問看護指示書・精神科訪問看護指示書など医療機関発行の指示書であればshijisho、介護保険被保険者証であればhokensho、介護保険負担割合証であればfutanwariai、薬局発行の薬剤情報提供書(薬情)であればyakujou。'
+    }
+  };
+  var required = ['doc_type'];
+
+  types.forEach(function (t) {
+    var props = configs[t].schema.properties;
+    Object.keys(props).forEach(function (key) {
+      if (!properties[key]) {
+        properties[key] = props[key];
+        required.push(key);
+      }
+    });
+  });
+
+  var instructionText =
+    '添付された画像またはPDFの書類の種類をまず判定し、doc_typeに設定してください' +
+    '(訪問看護指示書等の医療機関発行の指示書であればshijisho、介護保険被保険者証であればhokensho、' +
+    '介護保険負担割合証であればfutanwariai、薬局発行の薬剤情報提供書(薬情)であればyakujou)。' +
+    'そのうえで、判定した書類の種類に関係する項目だけを記載内容から読み取って埋めてください。' +
+    '判定した書類の種類には存在しない項目(他の書類にしか無い項目)はnull(配列項目は空のnull)のままにしてください。' +
+    '読み取れない、記載がない、自信が持てない項目がある場合、または書類の種類の判定自体に自信が持てない場合は、' +
+    'yomitori_bikoにその旨を記載してください。';
+
+  return {
+    schema: {
+      type: 'object',
+      properties: properties,
+      required: required,
+      additionalProperties: false
+    },
+    instructionText: instructionText
+  };
 }

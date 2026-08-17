@@ -83,6 +83,24 @@
     font-size: 0.85rem;
     padding: 8px 0;
   }
+  .capture-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .capture-buttons button {
+    margin-top: 0;
+    flex: 1;
+  }
+  #cameraBtn {
+    background: var(--ocean);
+    color: var(--ink);
+  }
+  #libraryBtn {
+    background: var(--white);
+    color: var(--ink);
+    border: 1px solid var(--mist);
+  }
   button {
     display: block;
     width: 100%;
@@ -171,12 +189,18 @@
     <h2>1. 書類を撮影・選択</h2>
     <label for="docTypeSelect">書類の種類</label>
     <select id="docTypeSelect">
+      <option value="auto" selected>🤖 自動判定(おまかせ)</option>
       <option value="shijisho">指示書(訪問看護指示書など)</option>
       <option value="hokensho">介護保険証</option>
       <option value="futanwariai">介護負担割合証</option>
       <option value="yakujou">薬情(薬剤情報提供書)</option>
     </select>
-    <input type="file" id="fileInput" accept="image/*,application/pdf" capture="environment">
+    <div class="capture-buttons">
+      <button class="btn-primary" id="cameraBtn" type="button">📷 写真を撮影する</button>
+      <button id="libraryBtn" type="button">🖼 アルバム・PDFから選択</button>
+    </div>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
+    <input type="file" id="libraryInput" accept="image/*,application/pdf" style="display:none">
     <img id="preview" alt="プレビュー">
     <p class="status note" id="pdfPreviewLabel" style="display:none;"></p>
     <button class="btn-primary" id="readBtn" type="button" disabled>AIで読み取る</button>
@@ -186,6 +210,7 @@
 
   <div class="card" id="resultCard">
     <h2>2. 読み取り結果を確認・修正</h2>
+    <p class="status note" id="autoDetectNote" style="display:none;"></p>
     <div id="dynamicFields"></div>
     <p class="disclaimer">これはお試し版です。この内容はまだどこにも保存されません。内容が正しいか必ず目で確認してください。</p>
     <button class="btn-secondary" id="copyKantakiBtn" type="button">KANTAKI-WIZ用にコピー</button>
@@ -210,7 +235,10 @@
   var passcodeInput = document.getElementById('passcode');
   var saveUrlBtn = document.getElementById('saveUrlBtn');
   var urlStatus = document.getElementById('urlStatus');
-  var fileInput = document.getElementById('fileInput');
+  var cameraInput = document.getElementById('cameraInput');
+  var libraryInput = document.getElementById('libraryInput');
+  var cameraBtn = document.getElementById('cameraBtn');
+  var libraryBtn = document.getElementById('libraryBtn');
   var preview = document.getElementById('preview');
   var readBtn = document.getElementById('readBtn');
   var loadingStatus = document.getElementById('loadingStatus');
@@ -219,6 +247,7 @@
   var pdfPreviewLabel = document.getElementById('pdfPreviewLabel');
   var docTypeSelect = document.getElementById('docTypeSelect');
   var dynamicFields = document.getElementById('dynamicFields');
+  var autoDetectNote = document.getElementById('autoDetectNote');
   var copyKantakiBtn = document.getElementById('copyKantakiBtn');
   var copyNote = document.getElementById('copyNote');
   var yakujouSaveBlock = document.getElementById('yakujouSaveBlock');
@@ -232,6 +261,8 @@
     shijisho: {
       label: '指示書(訪問看護指示書など)',
       showKantakiCopy: true,
+      showSaveToDb: true,
+      nameField: 'taishousha_hyouki',
       fields: [
         { key: 'shiji_shurui', label: '指示書の種類' },
         { key: 'jigyousho_mei', label: '発行先の訪問看護ステーション(事業所)名' },
@@ -261,6 +292,8 @@
     hokensho: {
       label: '介護保険証',
       showKantakiCopy: true,
+      showSaveToDb: true,
+      nameField: 'shimei',
       fields: [
         { key: 'hihokensha_bangou', label: '被保険者番号' },
         { key: 'shimei', label: '氏名' },
@@ -279,6 +312,8 @@
     futanwariai: {
       label: '介護負担割合証',
       showKantakiCopy: true,
+      showSaveToDb: true,
+      nameField: 'shimei',
       fields: [
         { key: 'hihokensha_bangou', label: '被保険者番号' },
         { key: 'shimei', label: '氏名' },
@@ -296,7 +331,8 @@
     yakujou: {
       label: '薬情(薬剤情報提供書)',
       showKantakiCopy: false,
-      showYakujouSave: true,
+      showSaveToDb: true,
+      nameField: 'taishousha_hyouki',
       fields: [
         { key: 'taishousha_hyouki', label: '対象者氏名の表記' },
         { key: 'hakko_bi', label: '発行日' },
@@ -339,8 +375,14 @@
     refreshUrlStatus();
   });
 
-  fileInput.addEventListener('change', function () {
-    var file = fileInput.files[0];
+  cameraBtn.addEventListener('click', function () {
+    cameraInput.click();
+  });
+  libraryBtn.addEventListener('click', function () {
+    libraryInput.click();
+  });
+
+  function handleFileSelected(file) {
     if (!file) {
       currentFile = null;
       preview.style.display = 'none';
@@ -364,6 +406,13 @@
       reader.readAsDataURL(file);
     }
     updateReadBtnState();
+  }
+
+  cameraInput.addEventListener('change', function () {
+    handleFileSelected(cameraInput.files[0]);
+  });
+  libraryInput.addEventListener('change', function () {
+    handleFileSelected(libraryInput.files[0]);
   });
 
   function updateReadBtnState() {
@@ -383,6 +432,46 @@
     });
   }
 
+  // 写真を縮小・圧縮する(AI読み取り用・R2保存用の両方で使う。呼び出し元で
+  // maxDim/qualityを変えて使い分ける)。PDFは縮小できないので元のまま扱う。
+  function compressImage(file, maxDim, quality) {
+    return new Promise(function (resolve, reject) {
+      if (file.type === 'application/pdf') {
+        fileToBase64(file).then(function (base64) {
+          resolve({ base64: base64, mime: file.type });
+        }).catch(reject);
+        return;
+      }
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      function fallbackToOriginal() {
+        URL.revokeObjectURL(url);
+        fileToBase64(file).then(function (base64) {
+          resolve({ base64: base64, mime: file.type || 'image/jpeg' });
+        }).catch(reject);
+      }
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        try {
+          var scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+          var w = Math.max(1, Math.round(img.naturalWidth * scale));
+          var h = Math.max(1, Math.round(img.naturalHeight * scale));
+          var canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          var ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          var dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve({ base64: dataUrl.split(',')[1], mime: 'image/jpeg' });
+        } catch (e) {
+          fallbackToOriginal();
+        }
+      };
+      img.onerror = fallbackToOriginal;
+      img.src = url;
+    });
+  }
+
   readBtn.addEventListener('click', function () {
     if (!currentFile) return;
     var gasUrl = getGasUrl();
@@ -393,13 +482,16 @@
     loadingStatus.style.display = 'block';
     readBtn.disabled = true;
 
-    var docType = docTypeSelect.value;
+    var requestedDocType = docTypeSelect.value;
 
-    fileToBase64(currentFile).then(function (base64) {
+    // AI読み取り用に、写真を長辺2200px程度まで縮小してから送る(通信量と
+    // 画像トークン数を減らして速度を上げる。文字が読み取れる範囲は保つ)。
+    // PDFはそのまま送る。
+    compressImage(currentFile, 2200, 0.9).then(function (result) {
       return fetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ imageBase64: base64, mimeType: currentFile.type || 'image/jpeg', passcode: getPasscode(), docType: docType })
+        body: JSON.stringify({ imageBase64: result.base64, mimeType: result.mime, passcode: getPasscode(), docType: requestedDocType })
       });
     }).then(function (res) {
       return res.json();
@@ -411,7 +503,19 @@
         errorStatus.style.display = 'block';
         return;
       }
-      showResult(data.extracted, docType);
+
+      var resultDocType = requestedDocType;
+      if (requestedDocType === 'auto') {
+        var detected = data.extracted && data.extracted.doc_type;
+        resultDocType = DOC_TYPES[detected] ? detected : 'shijisho';
+        docTypeSelect.value = resultDocType;
+        autoDetectNote.textContent = '🤖 自動判定: 「' + DOC_TYPES[resultDocType].label + '」として読み取りました。違う場合は上のプルダウンで種類を選び直し、もう一度「AIで読み取る」を押してください。';
+        autoDetectNote.style.display = 'block';
+      } else {
+        autoDetectNote.style.display = 'none';
+      }
+
+      showResult(data.extracted, resultDocType);
     }).catch(function (err) {
       loadingStatus.style.display = 'none';
       readBtn.disabled = false;
@@ -438,8 +542,8 @@
     });
     copyKantakiBtn.style.display = def.showKantakiCopy ? 'block' : 'none';
     copyNote.style.display = def.showKantakiCopy ? 'block' : 'none';
-    yakujouSaveBlock.style.display = def.showYakujouSave ? 'block' : 'none';
-    if (def.showYakujouSave) {
+    yakujouSaveBlock.style.display = def.showSaveToDb ? 'block' : 'none';
+    if (def.showSaveToDb) {
       riyoushaNameInput.value = '';
       saveYakujouStatus.style.display = 'none';
     }
@@ -458,6 +562,9 @@
         el.value = value || '';
       }
     });
+    if (def.showSaveToDb && def.nameField && extracted[def.nameField]) {
+      riyoushaNameInput.value = extracted[def.nameField];
+    }
     resultCard.style.display = 'block';
   }
 
@@ -605,25 +712,43 @@
       return;
     }
 
-    var kusuriLines = fieldVal('f_kusuri_ichiran').split('\n\n---\n\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    var docType = docTypeSelect.value;
+    var def = DOC_TYPES[docType];
+    var extractedFields = {};
+    def.fields.forEach(function (f) {
+      var raw = fieldVal('f_' + f.key);
+      if (f.isArray) {
+        extractedFields[f.key] = raw.split(f.arrayJoin || '\n').map(function (s) { return s.trim(); }).filter(Boolean);
+      } else {
+        extractedFields[f.key] = raw;
+      }
+    });
+
     var payload = {
-      action: 'save_yakujou',
+      action: 'save_document',
       passcode: getPasscode(),
+      doc_type: docType,
       riyousha_name: riyoushaName,
-      hakko_bi: fieldVal('f_hakko_bi'),
-      yakkyoku_mei: fieldVal('f_yakkyoku_mei'),
-      kusuri_ichiran: kusuriLines,
-      yomitori_biko: fieldVal('f_yomitori_biko')
+      extracted_fields: extractedFields
     };
 
     saveYakujouStatus.style.display = 'block';
     saveYakujouStatus.textContent = '保存中です...';
     saveYakujouBtn.disabled = true;
 
-    fetch(gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
+    var withPhoto = currentFile
+      ? compressImage(currentFile, 1600, 0.75).then(function (result) {
+          payload.photo_base64 = result.base64;
+          payload.photo_mime = result.mime;
+        })
+      : Promise.resolve();
+
+    withPhoto.then(function () {
+      return fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
     }).then(function (res) {
       return res.json();
     }).then(function (data) {
@@ -632,7 +757,9 @@
         saveYakujouStatus.textContent = '保存に失敗しました: ' + data.error;
         return;
       }
-      saveYakujouStatus.textContent = '保存しました。';
+      saveYakujouStatus.textContent = data.photo_saved
+        ? '保存しました(写真も保存しました)。'
+        : '保存しました。';
     }).catch(function (err) {
       saveYakujouBtn.disabled = false;
       saveYakujouStatus.textContent = '通信エラーが発生しました: ' + err.message;
