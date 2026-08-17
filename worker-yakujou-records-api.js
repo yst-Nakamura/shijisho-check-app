@@ -18,7 +18,9 @@
  *    - D1データベース: 変数名 DB → shiten-toggo-db
  *    - R2バケット: 変数名 PHOTOS → care-document-photos
  * 4. 「設定」の「変数とシークレット」に以下を追加(既にあれば流用)
- *    - WRITE_SECRET: このAPIを呼び出すための合言葉
+ *    - WRITE_SECRET: 保存(POST /)・写真取得(/photo)用の合言葉
+ *    - READ_SECRET: 期限アラート(/alerts)専用の、書き込み権限を持たない合言葉。
+ *      外部システム(看護ポータル等)にはこちらだけを渡す(WRITE_SECRETは渡さない)
  * 5. D1コンソール(shiten-toggo-db)で以下を実行してテーブルを作成:
  *    CREATE TABLE IF NOT EXISTS document_records (
  *      id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,8 +35,11 @@
  * 6. 「デプロイ」を押す
  *
  * エンドポイント:
- * POST /            … 書類データ(+写真)を保存
- * GET  /photo?key=… … 保存された写真を取得(Authorizationヘッダー必須)
+ * POST /            … 書類データ(+写真)を保存(要 WRITE_SECRET)
+ * GET  /photo?key=… … 保存された写真を取得(要 WRITE_SECRET)
+ * GET  /alerts      … 指示書・介護保険証・介護負担割合証の期限アラート一覧を取得
+ *                      (要 READ_SECRET。他システム(看護ポータル等)へのデータ
+ *                      提供用の読み取り専用エンドポイント)
  */
 
 const CORS_HEADERS = {
@@ -53,6 +58,12 @@ function jsonResponse(obj, status) {
 function isAuthed(request, env) {
   const authHeader = request.headers.get('Authorization');
   return authHeader === ('Bearer ' + env.WRITE_SECRET);
+}
+
+// /alerts専用の認証。書き込み権限は与えず、READ_SECRETのみで通す。
+function isReadAuthed(request, env) {
+  const authHeader = request.headers.get('Authorization');
+  return authHeader === ('Bearer ' + env.READ_SECRET);
 }
 
 function base64ToBytes(base64) {
@@ -117,6 +128,75 @@ async function handleSave(request, env) {
   return jsonResponse({ ok: true, photo_saved: !!photoKey });
 }
 
+// 書類の種類ごとに、期限として扱う項目名(getDocConfigのスキーマのキー名と対応)。
+// yakujou(薬情)には期限に相当する項目がないため対象外。
+const EXPIRY_FIELD_BY_DOC_TYPE = {
+  shijisho: 'yuukou_shuuryou',
+  hokensho: 'nintei_yuukou_shuuryou',
+  futanwariai: 'tekiyou_shuuryou'
+};
+
+async function handleGetAlerts(request, env) {
+  if (!isReadAuthed(request, env)) {
+    return jsonResponse({ error: '認証エラーです' }, 401);
+  }
+
+  const docTypes = Object.keys(EXPIRY_FIELD_BY_DOC_TYPE);
+  const placeholders = docTypes.map(function () { return '?'; }).join(',');
+
+  let rows;
+  try {
+    const result = await env.DB.prepare(
+      'SELECT riyousha_name, doc_type, extracted_json, created_at FROM document_records ' +
+      'WHERE doc_type IN (' + placeholders + ') ORDER BY created_at DESC'
+    ).bind(...docTypes).all();
+    rows = result.results || [];
+  } catch (e) {
+    return jsonResponse({ error: 'DB読み取りエラー: ' + e.message }, 500);
+  }
+
+  // riyousha_name(手入力の氏名)+doc_type ごとに、一番新しい行だけを採用する
+  // (created_at DESCで取得しているので、最初に出てきたものが最新)。
+  const seen = {};
+  const todayMs = Date.now();
+  const alerts = [];
+
+  rows.forEach(function (row) {
+    const key = row.riyousha_name + '|' + row.doc_type;
+    if (seen[key]) return;
+    seen[key] = true;
+
+    const expiryField = EXPIRY_FIELD_BY_DOC_TYPE[row.doc_type];
+    let extracted;
+    try {
+      extracted = JSON.parse(row.extracted_json || '{}');
+    } catch (e) {
+      return;
+    }
+    const validUntil = extracted[expiryField];
+    if (!validUntil) return;
+
+    const expiryMs = Date.parse(validUntil);
+    if (isNaN(expiryMs)) return;
+
+    const daysRemaining = Math.floor((expiryMs - todayMs) / 86400000);
+    const status = daysRemaining < 0 ? 'red' : (daysRemaining <= 14 ? 'yellow' : 'green');
+
+    alerts.push({
+      riyousha_name: row.riyousha_name,
+      doc_type: row.doc_type,
+      valid_until: validUntil,
+      days_remaining: daysRemaining,
+      status: status,
+      recorded_at: row.created_at
+    });
+  });
+
+  alerts.sort(function (a, b) { return a.days_remaining - b.days_remaining; });
+
+  return jsonResponse({ alerts: alerts });
+}
+
 async function handleGetPhoto(request, env) {
   if (!isAuthed(request, env)) {
     return jsonResponse({ error: '認証エラーです' }, 401);
@@ -147,6 +227,9 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/photo') {
       return handleGetPhoto(request, env);
+    }
+    if (request.method === 'GET' && url.pathname === '/alerts') {
+      return handleGetAlerts(request, env);
     }
     if (request.method !== 'POST') {
       return jsonResponse({ error: 'Method Not Allowed' }, 405);
