@@ -191,6 +191,13 @@
     <button class="btn-secondary" id="copyKantakiBtn" type="button">KANTAKI-WIZ用にコピー</button>
     <p class="status note" id="copyStatus" style="display:none;"></p>
     <p class="disclaimer" id="copyNote">コピー後、KANTAKI-WIZの該当する画面(利用者IDを選択し、対象の新規登録・編集ポップアップを開いた状態)でブックマークレットを実行し、貼り付けてください。「利用者ID」自体の選択は自動化されないので、別途手動で行ってください。</p>
+
+    <div id="yakujouSaveBlock" style="display:none;">
+      <label for="riyoushaNameInput">利用者名(手入力)</label>
+      <input type="text" id="riyoushaNameInput" placeholder="例: 山田 太郎">
+      <button class="btn-primary" id="saveYakujouBtn" type="button">この内容を保存する</button>
+      <p class="status note" id="saveYakujouStatus" style="display:none;"></p>
+    </div>
   </div>
 
 </main>
@@ -214,6 +221,10 @@
   var dynamicFields = document.getElementById('dynamicFields');
   var copyKantakiBtn = document.getElementById('copyKantakiBtn');
   var copyNote = document.getElementById('copyNote');
+  var yakujouSaveBlock = document.getElementById('yakujouSaveBlock');
+  var riyoushaNameInput = document.getElementById('riyoushaNameInput');
+  var saveYakujouBtn = document.getElementById('saveYakujouBtn');
+  var saveYakujouStatus = document.getElementById('saveYakujouStatus');
 
   var currentFile = null;
 
@@ -285,6 +296,7 @@
     yakujou: {
       label: '薬情(薬剤情報提供書)',
       showKantakiCopy: false,
+      showYakujouSave: true,
       fields: [
         { key: 'taishousha_hyouki', label: '対象者氏名の表記' },
         { key: 'hakko_bi', label: '発行日' },
@@ -426,6 +438,11 @@
     });
     copyKantakiBtn.style.display = def.showKantakiCopy ? 'block' : 'none';
     copyNote.style.display = def.showKantakiCopy ? 'block' : 'none';
+    yakujouSaveBlock.style.display = def.showYakujouSave ? 'block' : 'none';
+    if (def.showYakujouSave) {
+      riyoushaNameInput.value = '';
+      saveYakujouStatus.style.display = 'none';
+    }
   }
 
   function showResult(extracted, docType) {
@@ -572,6 +589,54 @@
     status.textContent = ok
       ? 'コピーしました。KANTAKI-WIZの画面でブックマークレットを実行してください。'
       : 'コピーに失敗しました。お使いの環境ではクリップボードが使えないようです。';
+  });
+
+  saveYakujouBtn.addEventListener('click', function () {
+    var riyoushaName = riyoushaNameInput.value.trim();
+    if (!riyoushaName) {
+      saveYakujouStatus.style.display = 'block';
+      saveYakujouStatus.textContent = '利用者名を入力してください。';
+      return;
+    }
+    var gasUrl = getGasUrl();
+    if (!gasUrl) {
+      saveYakujouStatus.style.display = 'block';
+      saveYakujouStatus.textContent = 'GASのURLが設定されていません。';
+      return;
+    }
+
+    var kusuriLines = fieldVal('f_kusuri_ichiran').split('\n\n---\n\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    var payload = {
+      action: 'save_yakujou',
+      passcode: getPasscode(),
+      riyousha_name: riyoushaName,
+      hakko_bi: fieldVal('f_hakko_bi'),
+      yakkyoku_mei: fieldVal('f_yakkyoku_mei'),
+      kusuri_ichiran: kusuriLines,
+      yomitori_biko: fieldVal('f_yomitori_biko')
+    };
+
+    saveYakujouStatus.style.display = 'block';
+    saveYakujouStatus.textContent = '保存中です...';
+    saveYakujouBtn.disabled = true;
+
+    fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(function (res) {
+      return res.json();
+    }).then(function (data) {
+      saveYakujouBtn.disabled = false;
+      if (data.error) {
+        saveYakujouStatus.textContent = '保存に失敗しました: ' + data.error;
+        return;
+      }
+      saveYakujouStatus.textContent = '保存しました。';
+    }).catch(function (err) {
+      saveYakujouBtn.disabled = false;
+      saveYakujouStatus.textContent = '通信エラーが発生しました: ' + err.message;
+    });
   });
 
   refreshUrlStatus();

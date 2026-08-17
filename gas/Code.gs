@@ -10,6 +10,7 @@
  * 2. 「プロジェクトの設定」→「スクリプト プロパティ」で以下を設定する
  *    - TEAM_SECRET: openai-proxyの認証用シークレット(Tetsuyaさんに確認)
  *    - APP_PASSCODE: このアプリ用に社内で共有する合言葉(好きな文字列。TEAM_SECRETとは別物)
+ *    - YAKUJOU_WRITE_SECRET: yakujou-records-api(D1保存用Worker)のWRITE_SECRETと同じ値
  * 3. 「デプロイ」→「新しいデプロイ」→ 種類「ウェブアプリ」
  *    - 実行するユーザー: 自分
  *    - アクセスできるユーザー: 全員(重要: 「組織内のみ」にするとアプリ側からの
@@ -20,19 +21,26 @@
 
 var OPENAI_MODEL = 'gpt-5.6';
 var OPENAI_API_URL = 'https://openai-proxy.tetsuya-nakamura-y.workers.dev/v1/responses';
+var YAKUJOU_API_URL = 'https://yakujou-records-api.tetsuya-nakamura-y.workers.dev/';
 
 function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
-    var imageBase64 = body.imageBase64;
-    var mimeType = body.mimeType || 'image/jpeg';
+    var action = body.action || 'read';
     var passcode = body.passcode || '';
-    var docType = body.docType || 'shijisho';
 
     var expectedPasscode = PropertiesService.getScriptProperties().getProperty('APP_PASSCODE');
     if (expectedPasscode && passcode !== expectedPasscode) {
       return jsonOutput({ error: '合言葉が正しくありません。設定を確認してください。' });
     }
+
+    if (action === 'save_yakujou') {
+      return handleSaveYakujou(body);
+    }
+
+    var imageBase64 = body.imageBase64;
+    var mimeType = body.mimeType || 'image/jpeg';
+    var docType = body.docType || 'shijisho';
 
     if (!imageBase64) {
       return jsonOutput({ error: '画像データがありません。' });
@@ -119,6 +127,49 @@ function doPost(e) {
 
 function jsonOutput(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * 薬情の読み取り結果を、yakujou-records-api経由でD1(shiten-toggo-db)に保存する。
+ */
+function handleSaveYakujou(body) {
+  try {
+    var writeSecret = PropertiesService.getScriptProperties().getProperty('YAKUJOU_WRITE_SECRET');
+    if (!writeSecret) {
+      return jsonOutput({ error: 'YAKUJOU_WRITE_SECRETが設定されていません。GASのスクリプトプロパティに設定してください。' });
+    }
+
+    if (!body.riyousha_name) {
+      return jsonOutput({ error: '利用者名が入力されていません。' });
+    }
+
+    var payload = {
+      riyousha_name: body.riyousha_name,
+      hakko_bi: body.hakko_bi || null,
+      yakkyoku_mei: body.yakkyoku_mei || null,
+      kusuri_ichiran: body.kusuri_ichiran || [],
+      yomitori_biko: body.yomitori_biko || null
+    };
+
+    var response = UrlFetchApp.fetch(YAKUJOU_API_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'Authorization': 'Bearer ' + writeSecret },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+
+    var statusCode = response.getResponseCode();
+    var responseText = response.getContentText();
+
+    if (statusCode !== 200) {
+      return jsonOutput({ error: '保存に失敗しました(' + statusCode + '): ' + responseText });
+    }
+
+    return jsonOutput({ ok: true });
+  } catch (err) {
+    return jsonOutput({ error: '保存処理中にエラーが発生しました: ' + err.message });
+  }
 }
 
 /**
