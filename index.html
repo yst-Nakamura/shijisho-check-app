@@ -126,11 +126,24 @@
     background: var(--sky);
     color: var(--ink);
   }
-  #preview {
-    max-width: 100%;
-    border-radius: 8px;
-    margin-top: 10px;
-    display: none;
+  #pageList { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .page { position: relative; width: 72px; }
+  .page img, .page .pdf {
+    width: 72px; height: 92px; object-fit: cover; border-radius: 8px;
+    border: 1px solid var(--mist); display: block; background: var(--mist);
+  }
+  .page .pdf {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.65rem; color: #555; text-align: center; padding: 4px;
+  }
+  .page .no {
+    position: absolute; left: 4px; top: 4px; background: rgba(9,4,1,.65);
+    color: #fff; font-size: 0.6rem; font-weight: 700; border-radius: 999px; padding: 1px 6px;
+  }
+  .page .del {
+    position: absolute; right: -4px; top: -4px; width: 22px; height: 22px;
+    border-radius: 50%; border: none; background: #A32D2D; color: #fff;
+    font-size: 0.8rem; line-height: 1; cursor: pointer; padding: 0; margin: 0;
   }
   .status {
     font-size: 0.85rem;
@@ -196,13 +209,13 @@
       <option value="yakujou">薬情(薬剤情報提供書)</option>
     </select>
     <div class="capture-buttons">
-      <button class="btn-primary" id="cameraBtn" type="button">📷 写真を撮影する</button>
-      <button id="libraryBtn" type="button">🖼 アルバム・PDFから選択</button>
+      <button class="btn-primary" id="cameraBtn" type="button">📷 写真を撮る（続けて追加できます）</button>
+      <button id="libraryBtn" type="button">🖼 アルバム・PDFから選ぶ</button>
     </div>
     <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
-    <input type="file" id="libraryInput" accept="image/*,application/pdf" style="display:none">
-    <img id="preview" alt="プレビュー">
-    <p class="status note" id="pdfPreviewLabel" style="display:none;"></p>
+    <input type="file" id="libraryInput" accept="image/*,application/pdf" multiple style="display:none">
+    <div id="pageList"></div>
+    <p class="status note" id="pageHint" style="display:none;"></p>
     <button class="btn-primary" id="readBtn" type="button" disabled>AIで読み取る</button>
     <div class="status loading" id="loadingStatus">読み取り中です。しばらくお待ちください...</div>
     <div class="status error" id="errorStatus"></div>
@@ -239,12 +252,12 @@
   var libraryInput = document.getElementById('libraryInput');
   var cameraBtn = document.getElementById('cameraBtn');
   var libraryBtn = document.getElementById('libraryBtn');
-  var preview = document.getElementById('preview');
+  var pageList = document.getElementById('pageList');
+  var pageHint = document.getElementById('pageHint');
   var readBtn = document.getElementById('readBtn');
   var loadingStatus = document.getElementById('loadingStatus');
   var errorStatus = document.getElementById('errorStatus');
   var resultCard = document.getElementById('resultCard');
-  var pdfPreviewLabel = document.getElementById('pdfPreviewLabel');
   var docTypeSelect = document.getElementById('docTypeSelect');
   var dynamicFields = document.getElementById('dynamicFields');
   var autoDetectNote = document.getElementById('autoDetectNote');
@@ -255,7 +268,8 @@
   var saveYakujouBtn = document.getElementById('saveYakujouBtn');
   var saveYakujouStatus = document.getElementById('saveYakujouStatus');
 
-  var currentFile = null;
+  // 同じ書類の複数ページを保持する。1件の記録に複数の写真が紐づく。
+  var pages = [];
 
   var DOC_TYPES = {
     shijisho: {
@@ -382,41 +396,73 @@
     libraryInput.click();
   });
 
-  function handleFileSelected(file) {
-    if (!file) {
-      currentFile = null;
-      preview.style.display = 'none';
-      pdfPreviewLabel.style.display = 'none';
-      updateReadBtnState();
-      return;
-    }
-    currentFile = file;
-    var isPdf = (file.type === 'application/pdf');
-    if (isPdf) {
-      preview.style.display = 'none';
-      pdfPreviewLabel.textContent = '📄 ' + file.name + ' を選択しました(PDFはプレビュー表示されません)';
-      pdfPreviewLabel.style.display = 'block';
-    } else {
-      pdfPreviewLabel.style.display = 'none';
-      var reader = new FileReader();
-      reader.onload = function (e) {
-        preview.src = e.target.result;
-        preview.style.display = 'block';
-      };
-      reader.readAsDataURL(file);
-    }
+  function addFiles(fileList) {
+    if (!fileList || !fileList.length) return;
+    Array.prototype.forEach.call(fileList, function (f) { pages.push(f); });
+    renderPages();
     updateReadBtnState();
   }
 
+  function removePage(i) {
+    pages.splice(i, 1);
+    renderPages();
+    updateReadBtnState();
+  }
+
+  function renderPages() {
+    pageList.innerHTML = '';
+    pages.forEach(function (f, i) {
+      var wrap = document.createElement('div');
+      wrap.className = 'page';
+
+      if (f.type === 'application/pdf') {
+        var pdf = document.createElement('div');
+        pdf.className = 'pdf';
+        pdf.textContent = 'PDF';
+        wrap.appendChild(pdf);
+      } else {
+        var img = document.createElement('img');
+        var reader = new FileReader();
+        reader.onload = function (e) { img.src = e.target.result; };
+        reader.readAsDataURL(f);
+        wrap.appendChild(img);
+      }
+
+      var no = document.createElement('span');
+      no.className = 'no';
+      no.textContent = (i + 1);
+      wrap.appendChild(no);
+
+      var del = document.createElement('button');
+      del.className = 'del';
+      del.type = 'button';
+      del.textContent = '×';
+      del.setAttribute('aria-label', (i + 1) + '枚目を削除');
+      del.onclick = function () { removePage(i); };
+      wrap.appendChild(del);
+
+      pageList.appendChild(wrap);
+    });
+
+    if (pages.length) {
+      pageHint.textContent = pages.length + '枚を読み取ります。同じ書類のページだけを入れてください。別の書類は分けて読み取ります。';
+      pageHint.style.display = 'block';
+    } else {
+      pageHint.style.display = 'none';
+    }
+  }
+
   cameraInput.addEventListener('change', function () {
-    handleFileSelected(cameraInput.files[0]);
+    addFiles(cameraInput.files);
+    cameraInput.value = '';
   });
   libraryInput.addEventListener('change', function () {
-    handleFileSelected(libraryInput.files[0]);
+    addFiles(libraryInput.files);
+    libraryInput.value = '';
   });
 
   function updateReadBtnState() {
-    readBtn.disabled = !(currentFile && getGasUrl());
+    readBtn.disabled = !(pages.length && getGasUrl());
   }
 
   function fileToBase64(file) {
@@ -473,7 +519,7 @@
   }
 
   readBtn.addEventListener('click', function () {
-    if (!currentFile) return;
+    if (!pages.length) return;
     var gasUrl = getGasUrl();
     if (!gasUrl) return;
 
@@ -487,11 +533,14 @@
     // AI読み取り用に、写真を長辺2200px程度まで縮小してから送る(通信量と
     // 画像トークン数を減らして速度を上げる。文字が読み取れる範囲は保つ)。
     // PDFはそのまま送る。
-    compressImage(currentFile, 2200, 0.9).then(function (result) {
+    Promise.all(pages.map(function (f) {
+      return compressImage(f, 2200, 0.9);
+    })).then(function (results) {
+      var images = results.map(function (r) { return { base64: r.base64, mime: r.mime }; });
       return fetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ imageBase64: result.base64, mimeType: result.mime, passcode: getPasscode(), docType: requestedDocType })
+        body: JSON.stringify({ images: images, passcode: getPasscode(), docType: requestedDocType })
       });
     }).then(function (res) {
       return res.json();
@@ -736,10 +785,11 @@
     saveYakujouStatus.textContent = '保存中です...';
     saveYakujouBtn.disabled = true;
 
-    var withPhoto = currentFile
-      ? compressImage(currentFile, 1600, 0.75).then(function (result) {
-          payload.photo_base64 = result.base64;
-          payload.photo_mime = result.mime;
+    var withPhoto = pages.length
+      ? Promise.all(pages.map(function (f) {
+          return compressImage(f, 1600, 0.75);
+        })).then(function (results) {
+          payload.photos = results.map(function (r) { return { base64: r.base64, mime: r.mime }; });
         })
       : Promise.resolve();
 
@@ -758,7 +808,7 @@
         return;
       }
       saveYakujouStatus.textContent = data.photo_saved
-        ? '保存しました(写真も保存しました)。'
+        ? '保存しました（写真' + data.photo_saved + '枚）。'
         : '保存しました。';
     }).catch(function (err) {
       saveYakujouBtn.disabled = false;
